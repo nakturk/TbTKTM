@@ -1,0 +1,13 @@
+<resources>
+    <string name="app_name">TbTKTM</string>
+    <string name="dashboard">Gösterge</string>
+    <string name="scan_devices">Motosiklet Ara</string>
+    <string name="key_mapping">Gidon Tuşları</string>
+    <string name="logs">Loglar</string>
+    <string name="status_connected">Bağlı</string>
+    <string name="status_disconnected">Bağlantı Yok</string>
+    <string name="status_connecting">Bağlanıyor...</string>
+    <string name="nav_source_none">Navigasyon Algılanmadı</string>
+    <string name="nav_source_gmaps">Google Maps Aktif</string>
+    <string name="nav_source_yandex">Yandex Navigasyon Aktif</string>
+</resources>
