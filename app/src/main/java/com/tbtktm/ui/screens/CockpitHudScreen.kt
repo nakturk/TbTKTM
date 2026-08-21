@@ -159,7 +159,7 @@ fun CockpitHudScreen(modifier: Modifier = Modifier) {
                         ) {
                             Text("FRONT BRAKE", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                             Text(
-                                "${String.format("%.1f", telemetryData.frontBrakePressureBar)} Bar",
+                                text = "${String.format(java.util.Locale.US, "%.1f", telemetryData.frontBrakePressureBar)} Bar",
                                 color = TftRed,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
@@ -169,7 +169,7 @@ fun CockpitHudScreen(modifier: Modifier = Modifier) {
                         Spacer(modifier = Modifier.height(6.dp))
                         val brakeProgress = (telemetryData.frontBrakePressureBar / 20.0f).coerceIn(0f, 1f)
                         LinearProgressIndicator(
-                            progress = brakeProgress,
+                            progress = { brakeProgress },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(12.dp),
@@ -188,7 +188,7 @@ fun CockpitHudScreen(modifier: Modifier = Modifier) {
                         ) {
                             Text("THROTTLE TPS", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                             Text(
-                                "${telemetryData.throttlePositionPercent.toInt()}%",
+                                text = "${telemetryData.throttlePositionPercent.toInt()}%",
                                 color = TftGreen,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
@@ -198,7 +198,7 @@ fun CockpitHudScreen(modifier: Modifier = Modifier) {
                         Spacer(modifier = Modifier.height(6.dp))
                         val tpsProgress = (telemetryData.throttlePositionPercent / 100.0f).coerceIn(0f, 1f)
                         LinearProgressIndicator(
-                            progress = tpsProgress,
+                            progress = { tpsProgress },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(12.dp),
@@ -263,7 +263,7 @@ fun CockpitHudScreen(modifier: Modifier = Modifier) {
                 ) {
                     Text("IMU PITCH", color = TftTextDim, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                     Text(
-                        text = "${String.format("%+.1f", telemetryData.pitchAngle)}°",
+                        text = "${String.format(java.util.Locale.US, "%+.1f", telemetryData.pitchAngle)}°",
                         color = if (telemetryData.pitchAngle > 3f) KtmOrange else Color.White,
                         fontSize = 24.sp,
                         fontWeight = FontWeight.Black,
@@ -272,7 +272,7 @@ fun CockpitHudScreen(modifier: Modifier = Modifier) {
                     Spacer(modifier = Modifier.height(8.dp))
                     Text("G-FORCE", color = TftTextDim, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                     Text(
-                        text = "${String.format("%+.2f", telemetryData.trajectoryAccelG)} G",
+                        text = "${String.format(java.util.Locale.US, "%+.2f", telemetryData.trajectoryAccelG)} G",
                         color = if (telemetryData.trajectoryAccelG < -0.5f) TftRed else TftGreen,
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
@@ -300,7 +300,7 @@ fun CockpitHudScreen(modifier: Modifier = Modifier) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("FRONT TIRE", color = TftTextDim, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                     Text(
-                        text = if (telemetryData.frontTirePressureBar > 0) "${String.format("%.2f", telemetryData.frontTirePressureBar)} Bar" else "--",
+                        text = if (telemetryData.frontTirePressureBar > 0) "${String.format(java.util.Locale.US, "%.2f", telemetryData.frontTirePressureBar)} Bar" else "--",
                         color = Color.White,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold
@@ -320,7 +320,7 @@ fun CockpitHudScreen(modifier: Modifier = Modifier) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("REAR TIRE", color = TftTextDim, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                     Text(
-                        text = if (telemetryData.rearTirePressureBar > 0) "${String.format("%.2f", telemetryData.rearTirePressureBar)} Bar" else "--",
+                        text = if (telemetryData.rearTirePressureBar > 0) "${String.format(java.util.Locale.US, "%.2f", telemetryData.rearTirePressureBar)} Bar" else "--",
                         color = Color.White,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold

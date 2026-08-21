@@ -20,3 +20,6 @@ val TftTextDim = Color(0xFF888888)
 
 val StatusGreen = Color(0xFF00E676)
 val StatusRed = Color(0xFFFF1744)
+
+val TftGreen = StatusGreen
+val TftRed = StatusRed
