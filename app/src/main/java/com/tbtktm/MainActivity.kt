@@ -43,8 +43,12 @@ import com.tbtktm.ui.theme.KtmOrange
 import com.tbtktm.ui.theme.TbTKTMTheme
 import com.tbtktm.ui.theme.TftTextDim
 
+import androidx.compose.material.icons.filled.Speed
+import com.tbtktm.ui.screens.CockpitHudScreen
+
 sealed class Screen(val route: String, val title: String, val icon: ImageVector) {
     object Dashboard : Screen("dashboard", "Gösterge", Icons.Default.Dashboard)
+    object Cockpit : Screen("cockpit", "Kokpit", Icons.Default.Speed)
     object Scan : Screen("scan", "Motosiklet", Icons.Default.BluetoothSearching)
     object KeyMapping : Screen("keys", "Gidon", Icons.Default.Gamepad)
 }
@@ -117,7 +121,7 @@ fun MainAppContainer(
 ) {
     val strings by com.tbtktm.i18n.AppLanguageManager.strings.collectAsState()
     var currentScreen by remember { mutableStateOf<Screen>(Screen.Dashboard) }
-    val items = listOf(Screen.Dashboard, Screen.Scan, Screen.KeyMapping)
+    val items = listOf(Screen.Dashboard, Screen.Cockpit, Screen.Scan, Screen.KeyMapping)
 
     Scaffold(
         bottomBar = {
@@ -128,6 +132,7 @@ fun MainAppContainer(
                 items.forEach { screen ->
                     val labelText = when (screen) {
                         is Screen.Dashboard -> strings.tabDashboard
+                        is Screen.Cockpit -> strings.tabCockpit
                         is Screen.Scan -> strings.tabMotorcycle
                         is Screen.KeyMapping -> strings.tabHandlebar
                     }
@@ -158,6 +163,7 @@ fun MainAppContainer(
                 is Screen.Dashboard -> DashboardScreen(
                     onNavigateToScan = { currentScreen = Screen.Scan }
                 )
+                is Screen.Cockpit -> CockpitHudScreen()
                 is Screen.Scan -> DeviceScanScreen(
                     onDeviceSelected = { currentScreen = Screen.Dashboard }
                 )
