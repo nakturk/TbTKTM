@@ -4,6 +4,10 @@
 *.aar
 *.ap_
 
+# Allow releases in builds directory
+!builds/
+!builds/**
+
 # Files for the ART/Dalvik VM
 *.dex
 
