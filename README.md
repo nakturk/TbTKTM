@@ -125,7 +125,7 @@ You can download and test the ready-to-use APK directly on your Android phone wi
 
 | Version | Release Date | Download Link | Notes |
 | :--- | :--- | :--- | :--- |
-| **v1.0 (Latest)** | Aug 22, 2026 | [⬇️ **Download TbTKTM_22AUG26_v1.apk**](https://github.com/nakturk/TbTKTM/raw/main/builds/TbTKTM_22AUG26_v1.apk) | Turn-by-Turn, 6-Axis IMU Cockpit & Marquee |
+| **v1.0 (Latest)** | 22AUG26 | [⬇️ **Download TbTKTM_latest.apk**](https://github.com/nakturk/TbTKTM/raw/main/builds/TbTKTM_latest.apk) | Turn-by-Turn, 6-Axis IMU Cockpit & Marquee |
 | **All Releases** | - | [📁 **Browse `builds/` Directory**](https://github.com/nakturk/TbTKTM/tree/main/builds) | Archive of all APK builds |
 
 > [!TIP]
