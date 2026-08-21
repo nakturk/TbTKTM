@@ -119,11 +119,28 @@ For in-depth reverse-engineered protocol documentation and model capabilities:
 
 ---
 
+## 📥 Download & Install (Pre-built APK)
+
+You can download and test the ready-to-use APK directly on your Android phone without needing to compile from source:
+
+| Version | Release Date | Download Link | Notes |
+| :--- | :--- | :--- | :--- |
+| **v1.0 (Latest)** | Aug 22, 2026 | [⬇️ **Download TbTKTM_22AUG26_v1.apk**](https://github.com/nakturk/TbTKTM/raw/main/builds/TbTKTM_22AUG26_v1.apk) | Turn-by-Turn, 6-Axis IMU Cockpit & Marquee |
+| **All Releases** | - | [📁 **Browse `builds/` Directory**](https://github.com/nakturk/TbTKTM/tree/main/builds) | Archive of all APK builds |
+
+> [!TIP]
+> **How to install on your Android device:**
+> 1. Download the `.apk` file from the link above using your phone's browser.
+> 2. Open the downloaded file and allow *"Install from unknown sources"* if prompted.
+> 3. Launch **TbTKTM** and grant Bluetooth & Notification Listener permissions.
+
+---
+
 ## 📲 Requirements & Installation
 
 ### Requirements
 - **Android Version:** Android 8.0 (API 26) or higher (Fully compatible with Android 12, 13, and 14).
-- **IDE:** Android Studio (Hedgehog / Iguana / Jellyfish or newer).
+- **IDE:** Android Studio (Hedgehog / Iguana / Jellyfish or newer) if building from source.
 - **Build Stack:** Kotlin 1.9+, Jetpack Compose (BOM 2024+), Gradle 8+.
 
 ### Required Android Permissions
@@ -134,11 +151,12 @@ For in-depth reverse-engineered protocol documentation and model capabilities:
 
 ---
 
-## 🚀 Quick Start
+## 🚀 Quick Start (Building from Source)
 
-1. Clone the repository and install the release APK on your Android device:
+1. Clone the repository and install the release APK on your connected Android device:
    ```bash
    git clone https://github.com/nakturk/TbTKTM.git
+   cd TbTKTM
    ./gradlew installRelease
    ```
 2. Open **TbTKTM**, navigate to the **Motorcycle** tab, and pair with your bike.
