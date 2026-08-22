@@ -7,6 +7,7 @@ import com.tbtktm.model.KtmTurnIcon
 import com.tbtktm.model.NavigationData
 import com.tbtktm.parser.AppNotificationData
 import com.tbtktm.util.FileLogger
+import com.tbtktm.util.toTftCleanText
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -52,8 +53,9 @@ class TftMarqueeTicker private constructor(private val bleManager: KtmBleManager
         isNotificationActive = true
 
         activeTickerJob = scope.launch {
-            val message = notif.fullMessageText.ifBlank { "Yeni Bildirim" }
-            FileLogger.log(">> 📜 TFT BİLDİRİM KAYAN YAZI BAŞLATILDI [${notif.appName}]: '${notif.senderOrTitle}' - '$message'")
+            val message = notif.fullMessageText.ifBlank { "Yeni Bildirim" }.toTftCleanText()
+            val senderName = notif.senderOrTitle.take(30).ifBlank { notif.appName }.toTftCleanText()
+            FileLogger.log(">> 📜 TFT BİLDİRİM KAYAN YAZI BAŞLATILDI [${notif.appName}]: '$senderName' - '$message'")
 
             val windowSize = 32
             val stepSize = 6
@@ -78,7 +80,6 @@ class TftMarqueeTicker private constructor(private val bleManager: KtmBleManager
             val slidingDurationMs = frames.size * stepDelayMs
             val holdDurationMs = max(3000L, 10000L - slidingDurationMs)
 
-            val senderName = notif.senderOrTitle.take(30).ifBlank { notif.appName }
             val hasActiveRoute = lastKnownNavData?.isActive == true
 
             // 3. Kareleri Sırayla TFT'ye Bas

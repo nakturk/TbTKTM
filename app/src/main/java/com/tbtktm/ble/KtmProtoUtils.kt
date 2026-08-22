@@ -2,6 +2,7 @@ package com.tbtktm.ble
 
 import com.tbtktm.model.KtmTurnIcon
 import com.tbtktm.model.NavigationData
+import com.tbtktm.util.toTftCleanText
 import org.json.JSONArray
 import org.json.JSONObject
 import java.nio.ByteBuffer
@@ -35,19 +36,19 @@ object KtmProtoUtils {
             val routePlans = JSONArray()
             val fav0 = JSONObject().apply {
                 put("Class", "Favorite")
-                put("Description", "Ev")
+                put("Description", "Ev".toTftCleanText())
                 put("IsRoutable", true)
                 put("ID", "Fav#0")
                 put("SubTitle", "")
-                put("Title", "Home")
+                put("Title", "Home".toTftCleanText())
             }
             val fav1 = JSONObject().apply {
                 put("Class", "Favorite")
-                put("Description", "KTM Motohall")
+                put("Description", "KTM Motohall".toTftCleanText())
                 put("IsRoutable", true)
                 put("ID", "Fav#1")
                 put("SubTitle", "")
-                put("Title", "KTM Motohall")
+                put("Title", "KTM Motohall".toTftCleanText())
             }
             routePlans.put(fav0)
             routePlans.put(fav1)
@@ -82,8 +83,9 @@ object KtmProtoUtils {
 
             // Turn Distance & Unit
             if (navData.distanceToTurn.isNotBlank()) {
-                val distParts = navData.distanceToTurn.trim().split(" ")
-                val distNum = distParts.getOrNull(0) ?: navData.distanceToTurn
+                val cleanDist = navData.distanceToTurn.toTftCleanText()
+                val distParts = cleanDist.trim().split(" ")
+                val distNum = distParts.getOrNull(0) ?: cleanDist
                 val distUnit = if (distParts.size > 1) distParts[1] else "m"
 
                 val distObj = JSONObject().apply {
@@ -101,7 +103,8 @@ object KtmProtoUtils {
 
             // Turn Info (Özel metin varsa onu, yoksa seçili dilde yerelleştirilmiş açıklama)
             val currentLang = com.tbtktm.i18n.AppLanguageManager.currentLanguage.value
-            val localizedDesc = if (navData.turnInfo.isNotBlank()) navData.turnInfo else navData.turnIcon.getLocalizedDescription(currentLang)
+            val rawDesc = if (navData.turnInfo.isNotBlank()) navData.turnInfo else navData.turnIcon.getLocalizedDescription(currentLang)
+            val localizedDesc = rawDesc.toTftCleanText()
             val infoObj = JSONObject().apply {
                 put("Text", if (localizedDesc.isNotBlank()) localizedDesc else " ")
                 put("Visibility", "full")
@@ -111,7 +114,7 @@ object KtmProtoUtils {
             // Road Name (Sokak / Cadde)
             if (navData.roadName.isNotBlank()) {
                 val roadObj = JSONObject().apply {
-                    put("Text", navData.roadName)
+                    put("Text", navData.roadName.toTftCleanText())
                     put("Visibility", "full")
                 }
                 guidanceUpdate.put("TurnRoad", roadObj)
@@ -120,7 +123,7 @@ object KtmProtoUtils {
             // ETA
             if (navData.eta.isNotBlank()) {
                 val etaObj = JSONObject().apply {
-                    put("Text", navData.eta)
+                    put("Text", navData.eta.toTftCleanText())
                     put("Visibility", "full")
                 }
                 guidanceUpdate.put("ETA", etaObj)
@@ -129,7 +132,7 @@ object KtmProtoUtils {
             // Distance to Destination
             if (navData.distanceToDestination.isNotBlank()) {
                 val destObj = JSONObject().apply {
-                    put("Text", navData.distanceToDestination)
+                    put("Text", navData.distanceToDestination.toTftCleanText())
                     put("Visibility", "full")
                 }
                 guidanceUpdate.put("Dist2Target", destObj)
