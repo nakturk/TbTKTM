@@ -2,6 +2,7 @@ package com.tbtktm.ticker
 
 import com.tbtktm.TbTApplication
 import com.tbtktm.ble.KtmBleManager
+import com.tbtktm.ble.KtmProtoUtils
 import com.tbtktm.model.KtmTurnIcon
 import com.tbtktm.model.NavigationData
 import com.tbtktm.parser.AppNotificationData
@@ -16,9 +17,10 @@ import kotlin.math.max
 
 /**
  * KTM TFT Ekranında Gelen Mesajları Yatay Kayan Yazı (Marquee Ticker) Olarak Gösteren Motor.
- * 800ms kaydırma adımları, dinamik süre hesabı (en az 10sn) ve otomatik navigasyona dönüş sağlar.
+ * 800ms kaydırma adımları, dinamik süre hesabı (en az 10sn), Restore başlatma desteği
+ * ve otomatik navigasyona dönüş sağlar.
  */
-class TftMarqueeTicker(private val bleManager: KtmBleManager) {
+class TftMarqueeTicker private constructor(private val bleManager: KtmBleManager) {
 
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private var activeTickerJob: Job? = null
@@ -77,22 +79,27 @@ class TftMarqueeTicker(private val bleManager: KtmBleManager) {
             val holdDurationMs = max(3000L, 10000L - slidingDurationMs)
 
             val senderName = notif.senderOrTitle.take(30).ifBlank { notif.appName }
+            val hasActiveRoute = lastKnownNavData?.isActive == true
 
             // 3. Kareleri Sırayla TFT'ye Bas
             // BÜYÜK ALAN (TurnRoad): Kayan Mesaj Metni (frameText)
             // KÜÇÜK ALAN (TurnInfo): Gönderen Kişi / Başlık (senderName)
-            for (frameText in frames) {
+            for ((index, frameText) in frames.withIndex()) {
+                val isFirstFrame = (index == 0)
+                // Eğer harita açık değilse, TFT ekranının TBT modunu açması için ilk karede mutlaka "Restore" gönderilir
+                val msgId = if (isFirstFrame && !hasActiveRoute) "Restore" else "mup"
+
                 val displayNav = NavigationData(
                     isActive = true,
                     turnIcon = KtmTurnIcon.START,
-                    distanceToTurn = notif.badgeText,
+                    distanceToTurn = notif.badgeText.ifBlank { "MSG" },
                     turnInfo = senderName,
                     roadName = frameText,
                     eta = notif.timeFormatted,
                     distanceToDestination = notif.appName.take(12)
                 )
 
-                sendCustomTickerFrame(displayNav, senderName = senderName, tickerText = frameText)
+                sendCustomTickerFrame(displayNav, msgId = msgId)
                 TbTApplication.updateNavigationData(displayNav)
 
                 delay(stepDelayMs)
@@ -119,72 +126,25 @@ class TftMarqueeTicker(private val bleManager: KtmBleManager) {
         }
     }
 
-    private fun sendCustomTickerFrame(baseNav: NavigationData, senderName: String, tickerText: String) {
-        // Custom KMRC JSON ile TurnRoad alanına kayan mesajı, TurnInfo alanına göndereni bas
-        val kmrcJson = buildTickerKmrcJson(baseNav, senderName, tickerText)
+    private fun sendCustomTickerFrame(navData: NavigationData, msgId: String) {
+        val kmrcJson = KtmProtoUtils.buildKmrcJsonNavigationMessage(navData, msgId = msgId)
         bleManager.sendRawKmrcJson(kmrcJson)
-    }
-
-    private fun buildTickerKmrcJson(navData: NavigationData, senderName: String, tickerText: String): String {
-        val root = org.json.JSONObject()
-        root.put("TbtGuidanceModeOn", org.json.JSONObject())
-
-        val guidanceUpdate = org.json.JSONObject()
-
-        val turnIconObj = org.json.JSONObject().apply {
-            put("Image", "START")
-            put("Visibility", "full")
-        }
-        guidanceUpdate.put("TurnIcon", turnIconObj)
-
-        val distObj = org.json.JSONObject().apply {
-            put("Text", "1")
-            put("Visibility", "full")
-        }
-        guidanceUpdate.put("TurnDist", distObj)
-
-        val unitObj = org.json.JSONObject().apply {
-            put("Text", navData.distanceToTurn)
-            put("Visibility", "full")
-        }
-        guidanceUpdate.put("TurnDistUnit", unitObj)
-
-        // KÜÇÜK ALAN -> Gönderen / Başlık (Sender Name)
-        val infoObj = org.json.JSONObject().apply {
-            put("Text", senderName)
-            put("Visibility", "full")
-        }
-        guidanceUpdate.put("TurnInfo", infoObj)
-
-        // BÜYÜK ALAN -> Kayan Mesaj Metni (Horizontal Marquee Ticker)
-        val roadObj = org.json.JSONObject().apply {
-            put("Text", tickerText)
-            put("Visibility", "full")
-        }
-        guidanceUpdate.put("TurnRoad", roadObj)
-
-        val etaObj = org.json.JSONObject().apply {
-            put("Text", navData.eta)
-            put("Visibility", "full")
-        }
-        guidanceUpdate.put("ETA", etaObj)
-
-        val destObj = org.json.JSONObject().apply {
-            put("Text", navData.distanceToDestination)
-            put("Visibility", "full")
-        }
-        guidanceUpdate.put("Dist2Target", destObj)
-
-        root.put("GuidanceUpdate", guidanceUpdate)
-        root.put("ActiveWayPoint", org.json.JSONObject())
-        root.put("MsgId", "mup")
-
-        return root.toString()
     }
 
     fun cancelActiveNotification() {
         activeTickerJob?.cancel()
         activeTickerJob = null
         isNotificationActive = false
+    }
+
+    companion object {
+        @Volatile
+        private var instance: TftMarqueeTicker? = null
+
+        fun getInstance(bleManager: KtmBleManager): TftMarqueeTicker {
+            return instance ?: synchronized(this) {
+                instance ?: TftMarqueeTicker(bleManager).also { instance = it }
+            }
+        }
     }
 }

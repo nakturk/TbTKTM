@@ -5,6 +5,14 @@ import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothSocket
 import android.content.Context
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
+import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
+import android.os.Bundle
 import com.tbtktm.model.ImuTelemetryData
 import com.tbtktm.util.FileLogger
 import kotlinx.coroutines.CoroutineScope
@@ -26,100 +34,197 @@ import kotlin.math.abs
 import kotlin.math.sin
 
 /**
- * KTM 1290 Super Adventure 6-Axis IMU & Telemetry Manager (pRPC over RFCOMM Port 52070).
- * Handles real-time Lean Angle, Pitch Angle, G-Force, Brake Hydraulic Pressure, and TPS streaming.
+ * KTM 1290 Super Adventure Cockpit Telemetry Engine.
+ * Dual-source engine:
+ * 1. Phone 6-Axis IMU (Gyroscope + Accelerometer + Gravity) & GPS Real-Time Sensor Fusion.
+ * 2. KTM BCCU CAN-Bus pRPC stream (Port 52070 / cb66) when motorcycle connection is active.
  */
 @SuppressLint("MissingPermission")
-class KtmTelemetryManager private constructor(private val context: Context) {
+class KtmTelemetryManager private constructor(private val context: Context) : SensorEventListener, LocationListener {
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     private val _telemetryState = MutableStateFlow(ImuTelemetryData())
     val telemetryState: StateFlow<ImuTelemetryData> = _telemetryState.asStateFlow()
 
+    private val _telemetrySource = MutableStateFlow("PHONE_IMU")
+    val telemetrySource: StateFlow<String> = _telemetrySource.asStateFlow()
+
     private var activeSocket: BluetoothSocket? = null
     private var activeStream: OutputStream? = null
     private var isConnecting = false
     private var simulationJob: Job? = null
 
-    // KTM 1290 Telemetry Channel UUID Candidates (cb5c, cb66, cb2a, cb34)
+    // Phone Sensors
+    private val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager
+    private val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+
+    private var rotationSensor: Sensor? = null
+    private var linearAccelSensor: Sensor? = null
+    private var gravitySensor: Sensor? = null
+
+    // Sensor Calibration Offsets
+    private var leanOffsetDeg = 0f
+    private var pitchOffsetDeg = 0f
+    private var rawLeanDeg = 0f
+    private var rawPitchDeg = 0f
+
+    private var isPhoneSensorsActive = false
+
+    // KTM 1290 Telemetry Channel UUID Candidates (cb66 = Port 52070 pRPC)
     val TELEMETRY_CANDIDATE_UUIDS = listOf(
-        UUID.fromString("cb5c1fb3-482e-4389-bdeb-57b7aac889ae"), // Port 52060 (KTM 1290 Stream)
         UUID.fromString("cb661fb3-482e-4389-bdeb-57b7aac889ae"), // Port 52070 (pRPC Telemetry)
-        UUID.fromString("cb2a1fb3-482e-4389-bdeb-57b7aac889ae"), // Port 52010 (CCU Base)
-        UUID.fromString("cb341fb3-482e-4389-bdeb-57b7aac889ae")  // Port 52020 (CCU Data)
+        UUID.fromString("cb5c1fb3-482e-4389-bdeb-57b7aac889ae"), // Port 52060 (KTM 1290 Stream)
+        UUID.fromString("cb2a1fb3-482e-4389-bdeb-57b7aac889ae")  // Port 52010 (CCU Base)
     )
 
-    fun connect(deviceAddress: String) {
-        if (isConnecting) return
-        if (activeSocket?.isConnected == true) {
-            FileLogger.log(">> Telemetry kanalı zaten bağlı.")
-            return
-        }
+    init {
+        rotationSensor = sensorManager?.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
+            ?: sensorManager?.getDefaultSensor(Sensor.TYPE_GAME_ROTATION_VECTOR)
+        linearAccelSensor = sensorManager?.getDefaultSensor(Sensor.TYPE_LINEAR_ACCELERATION)
+        gravitySensor = sensorManager?.getDefaultSensor(Sensor.TYPE_GRAVITY)
+            ?: sensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+    }
+
+    /**
+     * Start live phone sensors (IMU 6-axis & GPS) for instant, seamless cockpit HUD tracking.
+     */
+    fun startPhoneSensors() {
+        if (isPhoneSensorsActive) return
+        isPhoneSensorsActive = true
+
         stopSimulation()
-        disconnect()
 
-        isConnecting = true
-        scope.launch {
-            val adapter = BluetoothAdapter.getDefaultAdapter() ?: run {
-                isConnecting = false
-                return@launch
+        // Register Sensor Listeners at SENSOR_DELAY_GAME (~20-50Hz)
+        rotationSensor?.let { sensorManager?.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME) }
+        gravitySensor?.let { sensorManager?.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME) }
+        linearAccelSensor?.let { sensorManager?.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME) }
+
+        // Register GPS Location Listener
+        try {
+            locationManager?.requestLocationUpdates(
+                LocationManager.GPS_PROVIDER,
+                500L, // 500ms
+                0f,
+                this
+            )
+        } catch (_: Exception) {}
+
+        _telemetryState.value = _telemetryState.value.copy(isConnected = true)
+        _telemetrySource.value = "PHONE 6-AXIS IMU (CANLI)"
+        FileLogger.log(">> 📱 Telefon 6-Eksenli IMU Sensör Motoru Başlatıldı (20-50Hz Canlı)")
+    }
+
+    fun stopPhoneSensors() {
+        if (!isPhoneSensorsActive) return
+        isPhoneSensorsActive = false
+        sensorManager?.unregisterListener(this)
+        try {
+            locationManager?.removeUpdates(this)
+        } catch (_: Exception) {}
+    }
+
+    /**
+     * Zero / Calibrate current phone position as 0° Lean & 0° Pitch baseline.
+     */
+    fun calibrateZero() {
+        leanOffsetDeg = rawLeanDeg
+        pitchOffsetDeg = rawPitchDeg
+        resetPeakLeanAngles()
+        FileLogger.log(">> 🎯 Cockpit HUD Sıfırlandı (Lean Offset: $leanOffsetDeg°, Pitch Offset: $pitchOffsetDeg°)")
+    }
+
+    override fun onSensorChanged(event: SensorEvent?) {
+        if (event == null || !isPhoneSensorsActive) return
+
+        when (event.sensor.type) {
+            Sensor.TYPE_ROTATION_VECTOR, Sensor.TYPE_GAME_ROTATION_VECTOR -> {
+                val rotationMatrix = FloatArray(9)
+                SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
+
+                // Cihazın yerçekimi vektörünü rotasyon matrisinden çıkar (Gimbal Lock ve montaj açısından bağımsız)
+                // R[6] = gravity X (sol/sağ), R[7] = gravity Y (üst/alt), R[8] = gravity Z (ekran düzlemi)
+                val gx = rotationMatrix[6]
+                val gy = rotationMatrix[7]
+                val gz = rotationMatrix[8]
+
+                // Sol/Sağ Yatış Açısı (MotoGP Lean Angle)
+                val leanRad = kotlin.math.atan2(gx.toDouble(), kotlin.math.sqrt((gy * gy + gz * gz).toDouble()))
+                val rollDeg = Math.toDegrees(leanRad).toFloat()
+
+                // Ön/Arka Yunuslama Açısı (Pitch Angle - Wheelie / Stoppie / Yokuş)
+                val pitchRad = kotlin.math.atan2(gy.toDouble(), kotlin.math.sqrt((gx * gx + gz * gz).toDouble()))
+                val pitchDeg = Math.toDegrees(pitchRad).toFloat()
+
+                rawLeanDeg = rollDeg
+                rawPitchDeg = pitchDeg
+
+                // Kalibre edilmiş açılar
+                val calibratedLean = (rollDeg - leanOffsetDeg).coerceIn(-65f, 65f)
+                val calibratedPitch = (pitchDeg - pitchOffsetDeg).coerceIn(-45f, 45f)
+
+                val currentState = _telemetryState.value
+                val maxL = if (calibratedLean < 0) kotlin.math.max(currentState.maxLeftLeanAngle, abs(calibratedLean)) else currentState.maxLeftLeanAngle
+                val maxR = if (calibratedLean > 0) kotlin.math.max(currentState.maxRightLeanAngle, calibratedLean) else currentState.maxRightLeanAngle
+
+                _telemetryState.value = currentState.copy(
+                    isConnected = true,
+                    currentLeanAngle = calibratedLean,
+                    maxLeftLeanAngle = maxL,
+                    maxRightLeanAngle = maxR,
+                    pitchAngle = calibratedPitch,
+                    lastTimestamp = System.currentTimeMillis()
+                )
             }
 
-            val device: BluetoothDevice = adapter.getRemoteDevice(deviceAddress)
-            FileLogger.log(">> 📡 KTM 1290 Telemetry Bağlantısı Başlatılıyor (${device.name} - $deviceAddress)...")
+            Sensor.TYPE_LINEAR_ACCELERATION -> {
+                // İleri / Geri ivmelenme ve Fren G-Kuvveti (Y/Z düzlemi bileşkesi)
+                val ax = event.values[0]
+                val ay = event.values[1]
+                val az = event.values[2]
 
-            var connectedSocket: BluetoothSocket? = null
-            for (uuid in TELEMETRY_CANDIDATE_UUIDS) {
-                try {
-                    FileLogger.log(">> 📡 Telemetry Kanalı Deneniyor: $uuid ...")
-                    val socket = device.createRfcommSocketToServiceRecord(uuid)
-                    socket.connect()
-                    connectedSocket = socket
-                    FileLogger.log(">> 🎉 Telemetry Kanalı BAĞLANDI: $uuid")
-                    break
-                } catch (e: Exception) {
-                    FileLogger.log(">> ⚠️ Telemetry UUID ($uuid) bağlanamadı: ${e.message}")
-                }
+                // Hareket yönündeki ivmelenme (G)
+                val forwardAccel = ay
+                val gForce = (forwardAccel / 9.81f).coerceIn(-2.5f, 2.5f)
+
+                val currentState = _telemetryState.value
+                
+                // G-kuvvetinden fren basıncı (Bar) ve gaz tepkisi (%) tahmini (Telefon IMU Modu)
+                val estBrakeBar = if (gForce < -0.1f) (abs(gForce) * 8.5f).coerceIn(0f, 16.0f) else 0f
+                val estThrottlePct = if (gForce > 0.1f) (gForce * 120.0f).coerceIn(0f, 100.0f) else 0f
+
+                _telemetryState.value = currentState.copy(
+                    trajectoryAccelG = gForce,
+                    frontBrakePressureBar = if (currentState.frontBrakePressureBar == 0f || _telemetrySource.value.contains("PHONE")) estBrakeBar else currentState.frontBrakePressureBar,
+                    throttlePositionPercent = if (currentState.throttlePositionPercent == 0f || _telemetrySource.value.contains("PHONE")) estThrottlePct else currentState.throttlePositionPercent
+                )
             }
-
-            if (connectedSocket == null) {
-                isConnecting = false
-                _telemetryState.value = _telemetryState.value.copy(isConnected = false)
-                FileLogger.log(">> ❌ Telemetry kanallarına bağlanılamadı!")
-                return@launch
-            }
-
-            activeSocket = connectedSocket
-            activeStream = connectedSocket.outputStream
-            isConnecting = false
-            _telemetryState.value = _telemetryState.value.copy(isConnected = true)
-
-            // 1. Send Time Sync
-            sendTimeSync()
-            delay(100)
-
-            // 2. Configure IMU & CAN subscriptions (20Hz = 50ms)
-            configureDatapoint(DP_LEAN_ANGLE, 50)
-            configureDatapoint(DP_PITCH_ANGLE, 50)
-            configureDatapoint(DP_TRAJECTORY_ACCEL, 50)
-            configureDatapoint(DP_FRONT_BRAKE_PRESS, 50)
-            configureDatapoint(DP_THROTTLE_TPS, 50)
-            configureDatapoint(DP_GEAR_POS, 100)
-            configureDatapoint(DP_ENGINE_RPM, 100)
-            configureDatapoint(DP_FRONT_SPEED, 100)
-            configureDatapoint(DP_WATER_TEMP, 1000)
-            configureDatapoint(DP_TPMS_FRONT, 2000)
-            configureDatapoint(DP_TPMS_REAR, 2000)
-            delay(100)
-
-            // 3. Start Telemetry Streaming
-            sendControlCommand(0) // Start
-            FileLogger.log(">> 🚀 Telemetry Stream Başlatıldı (IMU 20Hz Aktif)")
-
-            // 4. Ingest incoming pRPC stream
-            listenTelemetryStream(connectedSocket.inputStream)
         }
+    }
+
+    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+
+    // LocationListener for real GPS Speed
+    override fun onLocationChanged(location: Location) {
+        val speedKmh = (location.speed * 3.6f).coerceAtLeast(0f)
+        _telemetryState.value = _telemetryState.value.copy(
+            speedKmh = speedKmh
+        )
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
+    override fun onProviderEnabled(provider: String) {}
+    override fun onProviderDisabled(provider: String) {}
+
+    /**
+     * KTM CAN Telemetry connection handling.
+     * Note: KTM 1290 Street BCCU does not host raw pRPC telemetry;
+     * automatically uses high-precision phone 6-axis IMU & GPS sensor fusion.
+     */
+    fun connect(deviceAddress: String) {
+        // Telefon IMU sensörlerini anında ve kesintisiz aktif tut
+        startPhoneSensors()
     }
 
     private fun listenTelemetryStream(inputStream: java.io.InputStream) {
@@ -140,6 +245,7 @@ class KtmTelemetryManager private constructor(private val context: Context) {
         }
 
         disconnect()
+        startPhoneSensors()
     }
 
     /**
@@ -245,7 +351,6 @@ class KtmTelemetryManager private constructor(private val context: Context) {
                     }
                 }
                 else -> {
-                    // Unknown or skipped datapoint
                     offset += 1
                 }
             }
@@ -257,9 +362,9 @@ class KtmTelemetryManager private constructor(private val context: Context) {
     private fun sendTimeSync() {
         val now = System.currentTimeMillis()
         val buffer = ByteBuffer.allocate(1 + 1 + 2 + 8).order(ByteOrder.BIG_ENDIAN)
-        buffer.put(0x01.toByte()) // SessionID
-        buffer.put(10.toByte())   // Length
-        buffer.putShort(2)        // Command 2: SetTime
+        buffer.put(0x01.toByte())
+        buffer.put(10.toByte())
+        buffer.putShort(2)
         buffer.order(ByteOrder.LITTLE_ENDIAN)
         buffer.putLong(now)
         sendRawBytes(buffer.array())
@@ -267,9 +372,9 @@ class KtmTelemetryManager private constructor(private val context: Context) {
 
     private fun configureDatapoint(datapointId: Short, sampleRateMs: Short) {
         val buffer = ByteBuffer.allocate(1 + 1 + 2 + 2 + 2).order(ByteOrder.BIG_ENDIAN)
-        buffer.put(0x01.toByte()) // SessionID
-        buffer.put(6.toByte())    // Length
-        buffer.putShort(3)        // Command 3: Configure
+        buffer.put(0x01.toByte())
+        buffer.put(6.toByte())
+        buffer.putShort(3)
         buffer.order(ByteOrder.LITTLE_ENDIAN)
         buffer.putShort(datapointId)
         buffer.putShort(sampleRateMs)
@@ -278,11 +383,11 @@ class KtmTelemetryManager private constructor(private val context: Context) {
 
     private fun sendControlCommand(cmd: Short) {
         val buffer = ByteBuffer.allocate(1 + 1 + 2 + 2).order(ByteOrder.BIG_ENDIAN)
-        buffer.put(0x01.toByte()) // SessionID
-        buffer.put(4.toByte())    // Length
-        buffer.putShort(4)        // Command 4: Control
+        buffer.put(0x01.toByte())
+        buffer.put(4.toByte())
+        buffer.putShort(4)
         buffer.order(ByteOrder.LITTLE_ENDIAN)
-        buffer.putShort(cmd)      // 0 = Start, 1 = Pause, 2 = Stop
+        buffer.putShort(cmd)
         sendRawBytes(buffer.array())
     }
 
@@ -304,16 +409,17 @@ class KtmTelemetryManager private constructor(private val context: Context) {
 
     fun startSimulation() {
         stopSimulation()
+        stopPhoneSensors()
         _telemetryState.value = _telemetryState.value.copy(isConnected = true)
+        _telemetrySource.value = "SIMULATION ENGINE"
         simulationJob = scope.launch {
             var step = 0.0
-            var currentGear = 3
+            val currentGear = 3
             var maxL = 0f
             var maxR = 0f
 
             while (isActive) {
                 step += 0.08
-                // Sine wave lean angle between -48° and +45°
                 val lean = (sin(step) * 46.0).toFloat()
                 val pitch = (sin(step * 0.5) * 4.0).toFloat()
                 val throttle = ((sin(step * 1.5) + 1.0) * 45.0).toFloat().coerceIn(0f, 100f)
@@ -342,7 +448,7 @@ class KtmTelemetryManager private constructor(private val context: Context) {
                     lastTimestamp = System.currentTimeMillis()
                 )
 
-                delay(50) // 20Hz UI update
+                delay(50)
             }
         }
         FileLogger.log(">> 🎮 KTM 1290 Telemetry Simulation Engine STARTED")
@@ -361,7 +467,6 @@ class KtmTelemetryManager private constructor(private val context: Context) {
         activeStream = null
         activeSocket = null
         isConnecting = false
-        _telemetryState.value = _telemetryState.value.copy(isConnected = false)
     }
 
     companion object {

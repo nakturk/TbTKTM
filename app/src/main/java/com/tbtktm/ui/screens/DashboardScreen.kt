@@ -401,7 +401,7 @@ fun DashboardScreen(
         // 5.2 WhatsApp & E-Posta Kayan Yazı Test Butonu
         Button(
             onClick = {
-                val ticker = com.tbtktm.ticker.TftMarqueeTicker(bleManager)
+                val ticker = com.tbtktm.ticker.TftMarqueeTicker.getInstance(bleManager)
                 val mockNotif = com.tbtktm.parser.AppNotificationData(
                     appName = "WhatsApp",
                     senderOrTitle = "Ahmet Yılmaz",

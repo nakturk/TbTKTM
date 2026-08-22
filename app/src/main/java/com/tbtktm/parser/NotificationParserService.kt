@@ -19,7 +19,7 @@ class NotificationParserService : NotificationListenerService() {
     override fun onCreate() {
         super.onCreate()
         bleManager = KtmBleManager.getInstance(this)
-        ticker = TftMarqueeTicker(bleManager)
+        ticker = TftMarqueeTicker.getInstance(bleManager)
         Log.d(tag, "NotificationParserService onCreate")
         FileLogger.log(">> NotificationParserService OLUŞTURULDU (Navigasyon + Çoklu Bildirim Ticker Aktif)")
     }

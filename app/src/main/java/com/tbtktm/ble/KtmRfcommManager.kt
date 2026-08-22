@@ -18,6 +18,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import java.io.DataInputStream
 import java.io.InputStream
 import java.io.OutputStream
@@ -27,11 +30,11 @@ import java.util.UUID
 class KtmRfcommManager private constructor(private val context: Context) {
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val connectionMutex = Mutex()
 
     private var activeSocket: BluetoothSocket? = null
     private var activeStream: OutputStream? = null
     private var lastConnectedAddress: String? = null
-    private var isConnecting = false
 
     private val _connectedChannelsCount = MutableStateFlow(0)
     val connectedChannelsCount: StateFlow<Int> = _connectedChannelsCount.asStateFlow()
@@ -43,27 +46,36 @@ class KtmRfcommManager private constructor(private val context: Context) {
     val EXTENDED_TBT_UUID: UUID = UUID.fromString("cc4d1fb3-482e-4389-bdeb-57b7aac889ae")
 
     fun connect(deviceAddress: String, customPasswordOrVin: String? = null) {
-        if (isConnecting) return
-        lastConnectedAddress = deviceAddress
+        scope.launch {
+            ensureConnected(deviceAddress)
+        }
+    }
 
-        if (activeStream != null && activeSocket?.isConnected == true) {
-            FileLogger.log(">> RFCOMM zaten bağlı, yeniden bağlanmaya gerek yok.")
-            return
+    suspend fun ensureConnected(deviceAddress: String? = null): Boolean {
+        val target = deviceAddress ?: lastConnectedAddress ?: KtmBleManager.getInstance(context).getLastConnectedAddress()
+        if (target.isNullOrBlank()) {
+            FileLogger.log("RFCOMM Bağlantı Atlandı: Cihaz adresi yok")
+            return false
         }
 
-        disconnect()
-        isConnecting = true
+        lastConnectedAddress = target
 
-        scope.launch {
-            val adapter = BluetoothAdapter.getDefaultAdapter()
-            if (adapter == null) {
-                isConnecting = false
-                return@launch
+        if (activeStream != null && activeSocket?.isConnected == true) {
+            return true
+        }
+
+        return connectionMutex.withLock {
+            if (activeStream != null && activeSocket?.isConnected == true) {
+                return@withLock true
             }
 
+            disconnectInternal()
+
+            val adapter = BluetoothAdapter.getDefaultAdapter() ?: return@withLock false
+
             try {
-                val device = adapter.getRemoteDevice(deviceAddress)
-                FileLogger.log(">> KTM 1290 RFCOMM Bağlantısı Başlatılıyor (${device.name} - $deviceAddress)...")
+                val device = adapter.getRemoteDevice(target)
+                FileLogger.log(">> KTM 1290 RFCOMM Bağlantısı Başlatılıyor (${device.name} - $target)...")
                 FileLogger.log(">> [EXTENDED_TBT (cc4d)] Kanalına bağlanılıyor...")
 
                 val socket = device.createRfcommSocketToServiceRecord(EXTENDED_TBT_UUID)
@@ -72,14 +84,13 @@ class KtmRfcommManager private constructor(private val context: Context) {
                 activeSocket = socket
                 activeStream = socket.outputStream
                 _connectedChannelsCount.value = 1
-                isConnecting = false
 
                 FileLogger.log(">> 🎉 [EXTENDED_TBT (cc4d)] BAŞARIYLA BAĞLANDI!")
 
-                // 1. Dinleme Döngüsünü Başlat
+                // Dinleme döngüsünü başlat
                 listenSocket(socket.inputStream)
 
-                // 2. KTMconnect Birebir Başlangıç Paketi (Restore + KMRC Framing)
+                // Eğer kuyrukta bekleyen özel bir navigasyon verisi yoksa standart başlangıç paketini bas
                 val initialNav = pendingNavData ?: NavigationData(
                     turnIcon = KtmTurnIcon.QUITE_RIGHT,
                     distanceToTurn = "350 m",
@@ -88,21 +99,22 @@ class KtmRfcommManager private constructor(private val context: Context) {
                     distanceToDestination = "5.0 km",
                     isActive = true
                 )
-                
+
                 val restoreJson = KtmProtoUtils.buildKmrcJsonNavigationMessage(initialNav, msgId = "Restore")
                 val framedRestore = KtmProtoUtils.frameKmrcMessage(restoreJson)
                 sendFramedBytes(framedRestore, "Restore KMRC Framed")
 
-                // 3. 200ms sonra canlı manevra paketini bas
-                delay(200)
+                delay(150)
                 val mupJson = KtmProtoUtils.buildKmrcJsonNavigationMessage(initialNav, msgId = "mup")
                 val framedMup = KtmProtoUtils.frameKmrcMessage(mupJson)
                 sendFramedBytes(framedMup, "Live Maneuver Framed (mup)")
 
+                true
             } catch (e: Exception) {
                 FileLogger.log("❌ RFCOMM Bağlantı Hatası: ${e.message}")
                 _connectedChannelsCount.value = 0
-                isConnecting = false
+                disconnectInternal()
+                false
             }
         }
     }
@@ -135,14 +147,9 @@ class KtmRfcommManager private constructor(private val context: Context) {
         pendingNavData = navData
 
         scope.launch {
-            if (activeStream == null || activeSocket?.isConnected != true) {
-                FileLogger.log(">> RFCOMM bağlı değil, otomatik bağlanılıyor...")
-                val target = lastConnectedAddress ?: KtmBleManager.getInstance(context).getLastConnectedAddress()
-                if (target != null) {
-                    connect(target)
-                } else {
-                    FileLogger.log("RFCOMM Gönderimi Atlandı: Kayıtlı motosiklet adresi yok")
-                }
+            val isReady = ensureConnected()
+            if (!isReady) {
+                FileLogger.log("❌ Navigasyon Güncellemesi İletilemedi (RFCOMM Bağlanamadı)")
                 return@launch
             }
 
@@ -154,9 +161,9 @@ class KtmRfcommManager private constructor(private val context: Context) {
 
     fun sendRawKmrcJson(jsonString: String, label: String = "Custom JSON") {
         scope.launch {
-            if (activeStream == null || activeSocket?.isConnected != true) {
-                val target = lastConnectedAddress ?: KtmBleManager.getInstance(context).getLastConnectedAddress()
-                if (target != null) connect(target)
+            val isReady = ensureConnected()
+            if (!isReady) {
+                FileLogger.log("❌ Raw KMRC JSON İletilemedi (RFCOMM Bağlanamadı)")
                 return@launch
             }
             val framed = KtmProtoUtils.frameKmrcMessage(jsonString)
@@ -179,7 +186,7 @@ class KtmRfcommManager private constructor(private val context: Context) {
         }
     }
 
-    fun disconnect() {
+    private fun disconnectInternal() {
         try {
             activeStream?.close()
             activeSocket?.close()
@@ -187,7 +194,14 @@ class KtmRfcommManager private constructor(private val context: Context) {
         activeStream = null
         activeSocket = null
         _connectedChannelsCount.value = 0
-        isConnecting = false
+    }
+
+    fun disconnect() {
+        scope.launch {
+            connectionMutex.withLock {
+                disconnectInternal()
+            }
+        }
     }
 
     companion object {

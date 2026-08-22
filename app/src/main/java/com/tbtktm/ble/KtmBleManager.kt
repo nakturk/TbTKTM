@@ -128,7 +128,6 @@ class KtmBleManager private constructor(private val context: Context) {
 
                 // Bluetooth Classic RFCOMM Soket bağlantısını başlat!
                 KtmRfcommManager.getInstance(context).connect(gatt.device.address)
-                com.tbtktm.telemetry.KtmTelemetryManager.getInstance(context).connect(gatt.device.address)
 
                 // SDP ile Classic servis UUID'lerini iste
                 FileLogger.log(">> Motosikletin Bluetooth Classic / SDP UUID'leri isteniyor (fetchUuidsWithSdp)...")
