@@ -75,6 +75,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        com.tbtktm.ble.KtmBleManager.getInstance(this).autoConnect()
+    }
+
     private fun ensureNotificationServiceRunning() {
         try {
             val componentName = ComponentName(this, com.tbtktm.parser.NotificationParserService::class.java)
@@ -121,7 +126,8 @@ fun MainAppContainer(
 ) {
     val strings by com.tbtktm.i18n.AppLanguageManager.strings.collectAsState()
     var currentScreen by remember { mutableStateOf<Screen>(Screen.Dashboard) }
-    val items = listOf(Screen.Dashboard, Screen.Cockpit, Screen.Scan, Screen.KeyMapping)
+    // Yalnızca TbT Navigasyon & Bildirim (Gösterge) ve Bluetooth Bağlantı (Motosiklet) sekmeleri aktif
+    val items = listOf(Screen.Dashboard, Screen.Scan)
 
     Scaffold(
         bottomBar = {

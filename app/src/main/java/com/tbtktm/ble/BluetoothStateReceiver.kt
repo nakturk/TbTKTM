@@ -5,11 +5,11 @@ import android.bluetooth.BluetoothDevice
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.util.Log
+import android.os.Build
+import androidx.core.content.IntentCompat
+import com.tbtktm.util.FileLogger
 
 class BluetoothStateReceiver : BroadcastReceiver() {
-
-    private val tag = "BluetoothStateReceiver"
 
     override fun onReceive(context: Context, intent: Intent) {
         val action = intent.action ?: return
@@ -22,16 +22,26 @@ class BluetoothStateReceiver : BroadcastReceiver() {
             BluetoothAdapter.ACTION_STATE_CHANGED -> {
                 val state = intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)
                 if (state == BluetoothAdapter.STATE_ON) {
-                    Log.d(tag, "Bluetooth Açıldı -> Bağlantı deneniyor: $savedAddress")
-                    bleManager.connect(savedAddress)
+                    FileLogger.log(">> 📶 Bluetooth Açıldı -> Kayıtlı Motosiklete Otomatik Bağlanıyor: $savedAddress")
+                    bleManager.autoConnect()
                 }
             }
 
             BluetoothDevice.ACTION_ACL_CONNECTED -> {
-                val device: BluetoothDevice? = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
-                if (device?.address?.equals(savedAddress, ignoreCase = true) == true) {
-                    Log.d(tag, "Motosiklet ACL Bağlantısı Algılandı -> Bağlanıyor")
-                    bleManager.connect(savedAddress)
+                val device: BluetoothDevice? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    IntentCompat.getParcelableExtra(intent, BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
+                } else {
+                    @Suppress("DEPRECATION")
+                    intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
+                }
+
+                val devAddress = device?.address
+                val devName = device?.name ?: ""
+                val isKtm = devName.contains("KTM", ignoreCase = true) || devName.contains("SPORTMOTORCYCLE", ignoreCase = true)
+
+                if (devAddress?.equals(savedAddress, ignoreCase = true) == true || (isKtm && !devAddress.isNullOrBlank())) {
+                    FileLogger.log(">> 🏍️ Motosiklet Bluetooth Bağlantısı Algılandı ($devName - $devAddress) -> Otomatik TbT Bağlanıyor...")
+                    bleManager.connect(devAddress)
                 }
             }
         }

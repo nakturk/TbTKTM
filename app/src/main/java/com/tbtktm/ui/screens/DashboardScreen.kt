@@ -109,6 +109,7 @@ fun DashboardScreen(
 
     LaunchedEffect(Unit) {
         checkNotificationAccess()
+        bleManager.autoConnect()
     }
 
     val isConnected = connectionState == BluetoothProfile.STATE_CONNECTED || rfcommChannelsCount > 0
@@ -249,7 +250,16 @@ fun DashboardScreen(
                 }
 
                 Button(
-                    onClick = onNavigateToScan,
+                    onClick = {
+                        val saved = bleManager.getLastConnectedAddress()
+                        if (isConnected) {
+                            onNavigateToScan()
+                        } else if (!saved.isNullOrBlank()) {
+                            bleManager.connect(saved)
+                        } else {
+                            onNavigateToScan()
+                        }
+                    },
                     colors = ButtonDefaults.buttonColors(containerColor = if (isConnected) DarkCardBorder else KtmOrange),
                     shape = RoundedCornerShape(8.dp)
                 ) {
@@ -259,7 +269,11 @@ fun DashboardScreen(
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text(text = if (isConnected) strings.btnManage else strings.btnConnect, fontSize = 12.sp)
+                    Text(
+                        text = if (isConnected) strings.btnManage else strings.btnConnect,
+                        fontSize = 12.sp,
+                        color = if (isConnected) Color.White else Color.Black
+                    )
                 }
             }
         }

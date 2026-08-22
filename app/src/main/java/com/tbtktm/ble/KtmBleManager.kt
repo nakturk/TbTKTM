@@ -15,6 +15,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.SharedPreferences
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.ParcelUuid
@@ -83,34 +84,80 @@ class KtmBleManager private constructor(private val context: Context) {
             FileLogger.log("Kayıtlı motosiklet: $savedAddress")
         }
 
-        // Bluetooth SDP ve Eşleşme Alıcısı
+        // Bluetooth SDP, ACL ve Eşleşme Alıcısı
         val filter = IntentFilter().apply {
             addAction(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
             addAction(BluetoothDevice.ACTION_UUID)
             addAction(BluetoothDevice.ACTION_ACL_CONNECTED)
+            addAction(BluetoothAdapter.ACTION_STATE_CHANGED)
         }
         context.registerReceiver(object : BroadcastReceiver() {
             override fun onReceive(c: Context?, intent: Intent?) {
                 val action = intent?.action ?: return
-                val dev: BluetoothDevice? = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
+                val dev: BluetoothDevice? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    androidx.core.content.IntentCompat.getParcelableExtra(intent, BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
+                } else {
+                    @Suppress("DEPRECATION")
+                    intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
+                }
                 val target = getLastConnectedAddress()
 
-                if (dev != null && target != null && dev.address.equals(target, ignoreCase = true)) {
-                    if (action == BluetoothDevice.ACTION_UUID) {
-                        val uuids = intent.getParcelableArrayExtra(BluetoothDevice.EXTRA_UUID)
-                        FileLogger.log(">> SDP UUID SONUÇLARI GELDİ (${dev.name} - ${dev.address}):")
-                        if (uuids != null) {
-                            for (u in uuids) {
-                                val parcelUuid = u as? ParcelUuid
-                                FileLogger.log("    [SDP UUID] ${parcelUuid?.uuid}")
+                when (action) {
+                    BluetoothDevice.ACTION_ACL_CONNECTED -> {
+                        val devAddress = dev?.address
+                        val devName = dev?.name ?: ""
+                        val isKtm = devName.contains("KTM", ignoreCase = true) || devName.contains("SPORTMOTORCYCLE", ignoreCase = true)
+                        if (devAddress?.equals(target, ignoreCase = true) == true || (isKtm && !devAddress.isNullOrBlank())) {
+                            FileLogger.log(">> 🏍️ Motosiklet ACL Bağlantısı Algılandı ($devName - $devAddress) -> Otomatik Bağlanıyor...")
+                            connect(devAddress)
+                        }
+                    }
+                    BluetoothAdapter.ACTION_STATE_CHANGED -> {
+                        val state = intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)
+                        if (state == BluetoothAdapter.STATE_ON) {
+                            autoConnect()
+                        }
+                    }
+                    BluetoothDevice.ACTION_UUID -> {
+                        if (dev != null && target != null && dev.address.equals(target, ignoreCase = true)) {
+                            val uuids = intent.getParcelableArrayExtra(BluetoothDevice.EXTRA_UUID)
+                            FileLogger.log(">> SDP UUID SONUÇLARI GELDİ (${dev.name} - ${dev.address}):")
+                            if (uuids != null) {
+                                for (u in uuids) {
+                                    val parcelUuid = u as? ParcelUuid
+                                    FileLogger.log("    [SDP UUID] ${parcelUuid?.uuid}")
+                                }
+                            } else {
+                                FileLogger.log("    (SDP UUID boş)")
                             }
-                        } else {
-                            FileLogger.log("    (SDP UUID boş)")
                         }
                     }
                 }
             }
         }, filter)
+
+        // Uygulama başlatıldığında kayıtlı motosiklet varsa otomatik bağlanmayı dene
+        if (!savedAddress.isNullOrBlank()) {
+            mainHandler.postDelayed({
+                autoConnect()
+            }, 1000)
+        }
+    }
+
+    /**
+     * Kayıtlı motosiklet varsa ve şu anda bağlı değilse otomatik olarak bağlantıyı başlatır.
+     */
+    fun autoConnect() {
+        val savedAddress = getLastConnectedAddress()
+        if (savedAddress.isNullOrBlank()) return
+        if (_connectionState.value == BluetoothProfile.STATE_CONNECTED) return
+        if (KtmRfcommManager.getInstance(context).connectedChannelsCount.value > 0) return
+
+        val adapter = bluetoothAdapter
+        if (adapter == null || !adapter.isEnabled) return
+
+        FileLogger.log(">> 🔄 Kayıtlı Motosiklete Otomatik Bağlanılıyor: $savedAddress")
+        connect(savedAddress)
     }
 
     private val gattCallback = object : BluetoothGattCallback() {
