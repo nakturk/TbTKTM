@@ -15,7 +15,7 @@ It also provides a **MotoGP-style Cockpit HUD** streaming live **6-Axis Bosch IM
 
 ## ✨ Key Features
 
-### 🧭 1. Advanced Navigation Integration (TBT Plus)
+### 🧭 1. Advanced Navigation Integration (TBT Plus) (#TESTED WITH GOOGLE MAPS ONLY)
 - **Google Maps & Yandex Navigation Support:** The background `UniversalNavParser` dynamically parses active navigation notifications to extract maneuver icons, distance to next turn, street/road names, Estimated Time of Arrival (ETA), and total remaining distance.
 - **57 Official KTM Maneuver Icons:** Full support for KTM's built-in icon set (`KtmTurnIcon`), including roundabout exits (1-8), highway on/off-ramps, sharp/slight turns, and U-turns.
 - **Smart Text Cleaning:** Cleans up directional suffixes and prepositions to ensure maximum legibility on the TFT cluster.
@@ -36,7 +36,7 @@ It also provides a **MotoGP-style Cockpit HUD** streaming live **6-Axis Bosch IM
 - **Supported Languages:** Turkish (🇹🇷), English (🇬🇧), Italian (🇮🇹), Spanish (🇪🇸), Greek (🇬🇷).
 - Maneuver descriptions and HMI strings are dynamically translated and transmitted to the cluster in the selected language.
 
-### 🕹️ 5. 8-Button Handlebar Switchgear Management (RCM)
+### 🕹️ 5. 8-Button Handlebar Switchgear Management (RCM) (#NOT YET WORKING)
 - Intercepts presses from **`SET`**, **`BACK`**, **`UP`**, **`DOWN`**, **`LEFT`**, **`RIGHT`**, **`C1`**, and **`C2`** over Bluetooth.
 - **Customizable Actions:**
   - ⏯️ Music Play / Pause
