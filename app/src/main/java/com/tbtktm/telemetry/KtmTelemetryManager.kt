@@ -42,38 +42,20 @@ class KtmTelemetryManager private constructor(private val context: Context) {
     private var isConnecting = false
     private var simulationJob: Job? = null
 
-    // KTM 1290 Telemetry Channel UUID (Port 52070 / 0xCB66)
-    val TELEMETRY_UUID: UUID = UUID.fromString("cb661fb3-482e-4389-bdeb-57b7aac889ae")
-
-    companion object {
-        @Volatile
-        private var instance: KtmTelemetryManager? = null
-
-        fun getInstance(context: Context): KtmTelemetryManager {
-            return instance ?: synchronized(this) {
-                instance ?: KtmTelemetryManager(context.applicationContext).also { instance = it }
-            }
-        }
-
-        // Datapoint IDs from CUKT_bCCU.json
-        const val DP_TIME_SYNC = 200.toShort()
-        const val DP_WATER_TEMP = 302.toShort()
-        const val DP_ENGINE_RPM = 303.toShort()
-        const val DP_THROTTLE_TPS = 304.toShort()
-        const val DP_GEAR_POS = 314.toShort()
-        const val DP_OIL_TEMP = 320.toShort()
-        const val DP_TRAJECTORY_ACCEL = 321.toShort()
-        const val DP_LEAN_ANGLE = 322.toShort()
-        const val DP_PITCH_ANGLE = 323.toShort()
-        const val DP_REAR_SPEED = 325.toShort()
-        const val DP_FRONT_SPEED = 326.toShort()
-        const val DP_TPMS_REAR = 337.toShort()
-        const val DP_TPMS_FRONT = 338.toShort()
-        const val DP_FRONT_BRAKE_PRESS = 358.toShort()
-    }
+    // KTM 1290 Telemetry Channel UUID Candidates (cb5c, cb66, cb2a, cb34)
+    val TELEMETRY_CANDIDATE_UUIDS = listOf(
+        UUID.fromString("cb5c1fb3-482e-4389-bdeb-57b7aac889ae"), // Port 52060 (KTM 1290 Stream)
+        UUID.fromString("cb661fb3-482e-4389-bdeb-57b7aac889ae"), // Port 52070 (pRPC Telemetry)
+        UUID.fromString("cb2a1fb3-482e-4389-bdeb-57b7aac889ae"), // Port 52010 (CCU Base)
+        UUID.fromString("cb341fb3-482e-4389-bdeb-57b7aac889ae")  // Port 52020 (CCU Data)
+    )
 
     fun connect(deviceAddress: String) {
         if (isConnecting) return
+        if (activeSocket?.isConnected == true) {
+            FileLogger.log(">> Telemetry kanalı zaten bağlı.")
+            return
+        }
         stopSimulation()
         disconnect()
 
@@ -84,50 +66,59 @@ class KtmTelemetryManager private constructor(private val context: Context) {
                 return@launch
             }
 
-            try {
-                val device: BluetoothDevice = adapter.getRemoteDevice(deviceAddress)
-                FileLogger.log(">> 📡 Connecting to KTM 1290 Telemetry Channel (${device.name} - $deviceAddress)...")
+            val device: BluetoothDevice = adapter.getRemoteDevice(deviceAddress)
+            FileLogger.log(">> 📡 KTM 1290 Telemetry Bağlantısı Başlatılıyor (${device.name} - $deviceAddress)...")
 
-                val socket = device.createRfcommSocketToServiceRecord(TELEMETRY_UUID)
-                socket.connect()
+            var connectedSocket: BluetoothSocket? = null
+            for (uuid in TELEMETRY_CANDIDATE_UUIDS) {
+                try {
+                    FileLogger.log(">> 📡 Telemetry Kanalı Deneniyor: $uuid ...")
+                    val socket = device.createRfcommSocketToServiceRecord(uuid)
+                    socket.connect()
+                    connectedSocket = socket
+                    FileLogger.log(">> 🎉 Telemetry Kanalı BAĞLANDI: $uuid")
+                    break
+                } catch (e: Exception) {
+                    FileLogger.log(">> ⚠️ Telemetry UUID ($uuid) bağlanamadı: ${e.message}")
+                }
+            }
 
-                activeSocket = socket
-                activeStream = socket.outputStream
-                isConnecting = false
-                _telemetryState.value = _telemetryState.value.copy(isConnected = true)
-
-                FileLogger.log(">> 🎉 KTM 1290 Telemetry Channel (52070) CONNECTED!")
-
-                // 1. Send Time Sync
-                sendTimeSync()
-                delay(100)
-
-                // 2. Configure IMU & CAN subscriptions (20Hz = 50ms)
-                configureDatapoint(DP_LEAN_ANGLE, 50)
-                configureDatapoint(DP_PITCH_ANGLE, 50)
-                configureDatapoint(DP_TRAJECTORY_ACCEL, 50)
-                configureDatapoint(DP_FRONT_BRAKE_PRESS, 50)
-                configureDatapoint(DP_THROTTLE_TPS, 50)
-                configureDatapoint(DP_GEAR_POS, 100)
-                configureDatapoint(DP_ENGINE_RPM, 100)
-                configureDatapoint(DP_FRONT_SPEED, 100)
-                configureDatapoint(DP_WATER_TEMP, 1000)
-                configureDatapoint(DP_TPMS_FRONT, 2000)
-                configureDatapoint(DP_TPMS_REAR, 2000)
-                delay(100)
-
-                // 3. Start Telemetry Streaming
-                sendControlCommand(0) // Start
-                FileLogger.log(">> 🚀 Telemetry Stream Started (IMU 20Hz Active)")
-
-                // 4. Ingest incoming pRPC stream
-                listenTelemetryStream(socket.inputStream)
-
-            } catch (e: Exception) {
+            if (connectedSocket == null) {
                 isConnecting = false
                 _telemetryState.value = _telemetryState.value.copy(isConnected = false)
-                FileLogger.log(">> ❌ Telemetry connection error: ${e.localizedMessage}")
+                FileLogger.log(">> ❌ Telemetry kanallarına bağlanılamadı!")
+                return@launch
             }
+
+            activeSocket = connectedSocket
+            activeStream = connectedSocket.outputStream
+            isConnecting = false
+            _telemetryState.value = _telemetryState.value.copy(isConnected = true)
+
+            // 1. Send Time Sync
+            sendTimeSync()
+            delay(100)
+
+            // 2. Configure IMU & CAN subscriptions (20Hz = 50ms)
+            configureDatapoint(DP_LEAN_ANGLE, 50)
+            configureDatapoint(DP_PITCH_ANGLE, 50)
+            configureDatapoint(DP_TRAJECTORY_ACCEL, 50)
+            configureDatapoint(DP_FRONT_BRAKE_PRESS, 50)
+            configureDatapoint(DP_THROTTLE_TPS, 50)
+            configureDatapoint(DP_GEAR_POS, 100)
+            configureDatapoint(DP_ENGINE_RPM, 100)
+            configureDatapoint(DP_FRONT_SPEED, 100)
+            configureDatapoint(DP_WATER_TEMP, 1000)
+            configureDatapoint(DP_TPMS_FRONT, 2000)
+            configureDatapoint(DP_TPMS_REAR, 2000)
+            delay(100)
+
+            // 3. Start Telemetry Streaming
+            sendControlCommand(0) // Start
+            FileLogger.log(">> 🚀 Telemetry Stream Başlatıldı (IMU 20Hz Aktif)")
+
+            // 4. Ingest incoming pRPC stream
+            listenTelemetryStream(connectedSocket.inputStream)
         }
     }
 
@@ -371,5 +362,32 @@ class KtmTelemetryManager private constructor(private val context: Context) {
         activeSocket = null
         isConnecting = false
         _telemetryState.value = _telemetryState.value.copy(isConnected = false)
+    }
+
+    companion object {
+        @Volatile
+        private var instance: KtmTelemetryManager? = null
+
+        fun getInstance(context: Context): KtmTelemetryManager {
+            return instance ?: synchronized(this) {
+                instance ?: KtmTelemetryManager(context.applicationContext).also { instance = it }
+            }
+        }
+
+        // Datapoint IDs from CUKT_bCCU.json
+        const val DP_TIME_SYNC = 200.toShort()
+        const val DP_WATER_TEMP = 302.toShort()
+        const val DP_ENGINE_RPM = 303.toShort()
+        const val DP_THROTTLE_TPS = 304.toShort()
+        const val DP_GEAR_POS = 314.toShort()
+        const val DP_OIL_TEMP = 320.toShort()
+        const val DP_TRAJECTORY_ACCEL = 321.toShort()
+        const val DP_LEAN_ANGLE = 322.toShort()
+        const val DP_PITCH_ANGLE = 323.toShort()
+        const val DP_REAR_SPEED = 325.toShort()
+        const val DP_FRONT_SPEED = 326.toShort()
+        const val DP_TPMS_REAR = 337.toShort()
+        const val DP_TPMS_FRONT = 338.toShort()
+        const val DP_FRONT_BRAKE_PRESS = 358.toShort()
     }
 }

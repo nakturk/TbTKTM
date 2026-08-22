@@ -99,9 +99,9 @@ object KtmProtoUtils {
                 guidanceUpdate.put("TurnDistUnit", unitObj)
             }
 
-            // Turn Info (Seçili dilde yerelleştirilmiş açıklama)
+            // Turn Info (Özel metin varsa onu, yoksa seçili dilde yerelleştirilmiş açıklama)
             val currentLang = com.tbtktm.i18n.AppLanguageManager.currentLanguage.value
-            val localizedDesc = navData.turnIcon.getLocalizedDescription(currentLang)
+            val localizedDesc = if (navData.turnInfo.isNotBlank()) navData.turnInfo else navData.turnIcon.getLocalizedDescription(currentLang)
             val infoObj = JSONObject().apply {
                 put("Text", if (localizedDesc.isNotBlank()) localizedDesc else " ")
                 put("Visibility", "full")

@@ -112,7 +112,7 @@ fun TftDashboardCard(
                             fontFamily = FontFamily.Monospace
                         )
                         Text(
-                            text = navData.turnIcon.getLocalizedDescription(currentLang),
+                            text = if (navData.turnInfo.isNotBlank()) navData.turnInfo else navData.turnIcon.getLocalizedDescription(currentLang),
                             color = TftTextYellow,
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Medium

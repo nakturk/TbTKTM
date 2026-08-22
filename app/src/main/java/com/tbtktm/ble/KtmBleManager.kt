@@ -128,6 +128,7 @@ class KtmBleManager private constructor(private val context: Context) {
 
                 // Bluetooth Classic RFCOMM Soket bağlantısını başlat!
                 KtmRfcommManager.getInstance(context).connect(gatt.device.address)
+                com.tbtktm.telemetry.KtmTelemetryManager.getInstance(context).connect(gatt.device.address)
 
                 // SDP ile Classic servis UUID'lerini iste
                 FileLogger.log(">> Motosikletin Bluetooth Classic / SDP UUID'leri isteniyor (fetchUuidsWithSdp)...")
@@ -138,6 +139,8 @@ class KtmBleManager private constructor(private val context: Context) {
                 }, 400)
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 FileLogger.log("Bağlantı Kesildi")
+                KtmRfcommManager.getInstance(context).disconnect()
+                com.tbtktm.telemetry.KtmTelemetryManager.getInstance(context).disconnect()
                 closeGatt()
             }
         }

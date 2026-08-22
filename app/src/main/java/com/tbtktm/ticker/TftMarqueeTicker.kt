@@ -76,23 +76,24 @@ class TftMarqueeTicker(private val bleManager: KtmBleManager) {
             val slidingDurationMs = frames.size * stepDelayMs
             val holdDurationMs = max(3000L, 10000L - slidingDurationMs)
 
+            val senderName = notif.senderOrTitle.take(30).ifBlank { notif.appName }
+
             // 3. Kareleri Sırayla TFT'ye Bas
-            for ((index, frameText) in frames.withIndex()) {
+            // BÜYÜK ALAN (TurnRoad): Kayan Mesaj Metni (frameText)
+            // KÜÇÜK ALAN (TurnInfo): Gönderen Kişi / Başlık (senderName)
+            for (frameText in frames) {
                 val displayNav = NavigationData(
                     isActive = true,
                     turnIcon = KtmTurnIcon.START,
                     distanceToTurn = notif.badgeText,
-                    roadName = notif.senderOrTitle.take(30),
+                    turnInfo = senderName,
+                    roadName = frameText,
                     eta = notif.timeFormatted,
                     distanceToDestination = notif.appName.take(12)
                 )
 
-                // TurnInfo alanına kayan pencere metnini bas
-                val customDescriptionNav = displayNav.copy(
-                    turnIcon = KtmTurnIcon.START
-                )
-                // KtmProtoUtils için geçici özel açıklama
-                sendCustomTickerFrame(displayNav, frameText)
+                sendCustomTickerFrame(displayNav, senderName = senderName, tickerText = frameText)
+                TbTApplication.updateNavigationData(displayNav)
 
                 delay(stepDelayMs)
             }
@@ -118,17 +119,13 @@ class TftMarqueeTicker(private val bleManager: KtmBleManager) {
         }
     }
 
-    private fun sendCustomTickerFrame(baseNav: NavigationData, tickerText: String) {
-        val navWithTicker = baseNav.copy(
-            roadName = baseNav.roadName,
-            distanceToTurn = baseNav.distanceToTurn
-        )
-        // Custom KMRC JSON ile TurnInfo metnini bas
-        val kmrcJson = buildTickerKmrcJson(navWithTicker, tickerText)
+    private fun sendCustomTickerFrame(baseNav: NavigationData, senderName: String, tickerText: String) {
+        // Custom KMRC JSON ile TurnRoad alanına kayan mesajı, TurnInfo alanına göndereni bas
+        val kmrcJson = buildTickerKmrcJson(baseNav, senderName, tickerText)
         bleManager.sendRawKmrcJson(kmrcJson)
     }
 
-    private fun buildTickerKmrcJson(navData: NavigationData, tickerText: String): String {
+    private fun buildTickerKmrcJson(navData: NavigationData, senderName: String, tickerText: String): String {
         val root = org.json.JSONObject()
         root.put("TbtGuidanceModeOn", org.json.JSONObject())
 
@@ -152,14 +149,16 @@ class TftMarqueeTicker(private val bleManager: KtmBleManager) {
         }
         guidanceUpdate.put("TurnDistUnit", unitObj)
 
+        // KÜÇÜK ALAN -> Gönderen / Başlık (Sender Name)
         val infoObj = org.json.JSONObject().apply {
-            put("Text", tickerText)
+            put("Text", senderName)
             put("Visibility", "full")
         }
         guidanceUpdate.put("TurnInfo", infoObj)
 
+        // BÜYÜK ALAN -> Kayan Mesaj Metni (Horizontal Marquee Ticker)
         val roadObj = org.json.JSONObject().apply {
-            put("Text", navData.roadName)
+            put("Text", tickerText)
             put("Visibility", "full")
         }
         guidanceUpdate.put("TurnRoad", roadObj)

@@ -60,6 +60,13 @@ fun CockpitHudScreen(modifier: Modifier = Modifier) {
 
     var isSimulating by remember { mutableStateOf(false) }
 
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        val lastAddress = com.tbtktm.ble.KtmBleManager.getInstance(context).getLastConnectedAddress()
+        if (!lastAddress.isNullOrBlank() && !telemetryData.isConnected && !isSimulating) {
+            telemetryManager.connect(lastAddress)
+        }
+    }
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -78,42 +85,59 @@ fun CockpitHudScreen(modifier: Modifier = Modifier) {
                 Text(
                     text = "KTM 1290 COCKPIT HUD",
                     color = Color.White,
-                    fontSize = 20.sp,
+                    fontSize = 18.sp,
                     fontWeight = FontWeight.Black
                 )
                 Text(
-                    text = if (telemetryData.isConnected) "● 6-AXIS IMU & CAN CONNECTED" else "○ WAITING FOR TELEMETRY (PORT 52070)",
+                    text = if (telemetryData.isConnected) "● 6-AXIS IMU & CAN CONNECTED" else "○ WAITING FOR TELEMETRY",
                     color = if (telemetryData.isConnected) TftGreen else TftTextDim,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold
                 )
             }
 
-            Button(
-                onClick = {
-                    isSimulating = !isSimulating
-                    if (isSimulating) {
-                        telemetryManager.startSimulation()
-                    } else {
-                        telemetryManager.stopSimulation()
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (!telemetryData.isConnected && !isSimulating) {
+                    Button(
+                        onClick = {
+                            val lastAddress = com.tbtktm.ble.KtmBleManager.getInstance(context).getLastConnectedAddress()
+                            if (!lastAddress.isNullOrBlank()) {
+                                telemetryManager.connect(lastAddress)
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = DarkCard),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text(text = "CONNECT", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = KtmOrange)
                     }
-                },
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = if (isSimulating) TftRed else KtmOrange
-                ),
-                shape = RoundedCornerShape(10.dp)
-            ) {
-                Icon(
-                    imageVector = if (isSimulating) Icons.Default.Stop else Icons.Default.PlayArrow,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp)
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(
-                    text = if (isSimulating) "STOP SIM" else "TEST SIM",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold
-                )
+                }
+
+                Button(
+                    onClick = {
+                        isSimulating = !isSimulating
+                        if (isSimulating) {
+                            telemetryManager.startSimulation()
+                        } else {
+                            telemetryManager.stopSimulation()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isSimulating) TftRed else KtmOrange
+                    ),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Icon(
+                        imageVector = if (isSimulating) Icons.Default.Stop else Icons.Default.PlayArrow,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = if (isSimulating) "STOP SIM" else "TEST SIM",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
         }
 
